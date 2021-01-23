@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simple Copymanga Downloader
 // @namespace    -
-// @version      0.2.0
+// @version      0.2.1
 // @description  沒什麼技術成分，非常暴力的下載器
 // @author       LianSheng
 // @include      https://www.copymanga.com/*
@@ -99,8 +99,8 @@ function downloadSelected(retry = false) {
                     progress.innerText = `${GM_getValue("downloading")}（正在壓縮）`;
                 }
 
-                // 判斷超時（90秒）
-                if (Time.ago(GM_getValue("lastUpdate")) > 9e4) {
+                // 判斷超時（40秒）
+                if (Time.ago(GM_getValue("lastUpdate")) > 4e4) {
                     clearInterval(id);
                     rej();
                 }
@@ -154,7 +154,10 @@ async function downloanThisEpisode(imgs) {
     // 等待上方下載完畢
     await new Promise(res => {
         let id = setInterval(()=>{
-            if (GM_getValue("progress") == GM_getValue("total")) {
+            // 少數情況會有明明完成了數字卻對不起來的狀況，研判可能是短時間內呼叫 API 有重疊到導致誤差
+            // 當然也有可能是缺圖，不過由於這個下載器的架構是主頁與個別頁面分開運作，因此很難除錯
+            // 只好特別另開一個條件容忍了（誤差 <= 3，且上次更新時間是 20 秒前）
+            if (GM_getValue("progress") == GM_getValue("total") || (GM_getValue("total") - GM_setValue("progress") <= 3 && (Time.ago(GM_getValue("lastUpdate")) > 2e4))) {
                 clearInterval(id);
                 res();
             };
