@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simple Copymanga Downloader
 // @namespace    -
-// @version      0.1.1
+// @version      0.2.0
 // @description  沒什麼技術成分，非常暴力的下載器
 // @author       LianSheng
 // @include      https://www.copymanga.com/*
@@ -15,6 +15,37 @@
 
 const CORSProxy = "https://simple-cors-anywhere.herokuapp.com/";
 const Url = location.href;
+
+// 工具：時間
+const Time = {
+    now: () => Date.now(),
+    ago: timestamp => Date.now() - timestamp
+};
+
+// 工具：初始化儲存的資料
+function storageInit() {
+    GM_setValue("progress", 0);
+    GM_setValue("total", -1);
+    GM_setValue("lastUpdate", Time.now());
+}
+
+// 工具：webp 轉 jpg
+function webpToJpg(webp) {
+    let image = new Image();
+
+    return new Promise(res => {
+        image.onload = () => {
+            let canvas = document.createElement('canvas');
+            canvas.width = image.width;
+            canvas.height = image.height;
+            canvas.getContext('2d').drawImage(image, 0, 0);
+            canvas.toBlob(blob => res(blob), 'image/jpeg', 0.75);
+        }
+
+        image.src = URL.createObjectURL(webp);
+    });
+}
+
 
 // 工具：同步 forEach
 async function asyncForEach(array, callback) {
@@ -37,6 +68,7 @@ function clickProxy(event, selectMode) {
 // 主頁：下載所有已選，若 retry 爲 true 則只下載失敗的
 function downloadSelected(retry = false) {
     let allLi, allData;
+    let progress = document.querySelector("#s_progress");
 
     if (retry) {
         allLi = document.querySelectorAll("div[id].active ul.table-all a li.selected.failed");
@@ -47,37 +79,53 @@ function downloadSelected(retry = false) {
     }
 
     asyncForEach(allData, async data => {
+        storageInit();
         GM_setValue("downloading", data[0]);
-        let wid = window.open(`https://www.copymanga.com${data[1]}`);
 
-        await new Promise((resolve, reject) => {
+        // 改用彈出式子視窗避免主頁被凍結
+        let wid = window.open(`https://www.copymanga.com${data[1]}`, data[0], "width=800,height=600");
+
+        await new Promise((res, rej) => {
             let count = 0;
             let id = setInterval(() => {
                 if (GM_getValue("downloading") == "completed") {
                     clearInterval(id);
-                    resolve();
+                    res();
+                } else {
+                    progress.innerText = `${GM_getValue("downloading")}（${GM_getValue("progress")}/${GM_getValue("total")}）`;
                 }
 
-                // 超時：600*100ms = 60s
-                if (count > 600) {
+                if (GM_getValue("progress") == GM_getValue("total")) {
+                    progress.innerText = `${GM_getValue("downloading")}（正在壓縮）`;
+                }
+
+                // 判斷超時（90秒）
+                if (Time.ago(GM_getValue("lastUpdate")) > 9e4) {
                     clearInterval(id);
-                    reject();
+                    rej();
                 }
 
                 count++;
             }, 100);
         }).then(() => {
             // 下載成功
+            progress.innerText = `（下載成功）`;
+
+            storageInit();
             GM_setValue("downloading", undefined);
             data[2].classList.remove("selected");
             data[2].classList.add("success");
         }).catch(() => {
             // 超時，判斷爲下載失敗，略過
+            progress.innerText = `（下載失敗）`;
+
+            storageInit();
             GM_setValue("downloading", undefined);
             data[2].classList.remove("selected");
             data[2].classList.add("failed");
         });
 
+        // 確保子視窗已關閉
         wid.close();
     });
 }
@@ -89,13 +137,28 @@ async function downloanThisEpisode(imgs) {
     const title = data[0];
     const name = data[1].replace(".", "-");
 
-    await asyncForEach(imgs, async (img, index) => {
+    GM_setValue("total", imgs.length);
+
+    asyncForEach(imgs, async (img, index) => {
         let realSrc = img.getAttribute("data-src");
-        await fetch(`${CORSProxy}${realSrc}`).then(
+        fetch(`${CORSProxy}${realSrc}`).then(
             r => r.blob()
-        ).then(image => {
-            zip.file(`${index+1}.webp`, image);
+        ).then(async webp => {
+            let jpg = await webpToJpg(webp);
+            zip.file(`${index+1}.jpg`, jpg);
+            GM_setValue("lastUpdate", Time.now());
+            GM_setValue("progress", GM_getValue("progress") + 1);
         });
+    });
+
+    // 等待上方下載完畢
+    await new Promise(res => {
+        let id = setInterval(()=>{
+            if (GM_getValue("progress") == GM_getValue("total")) {
+                clearInterval(id);
+                res();
+            };
+        }, 100);
     });
 
     await zip.generateAsync({
@@ -120,10 +183,11 @@ async function downloanThisEpisode(imgs) {
 
     GM_addStyle(`.selected { background-color: lightblue; } .success { background-color: lightgreen; } .failed { background-color: pink; }`);
 
+    // 提前丟出空請求，確保網站已開機，減少後續等待時間
+    fetch(CORSProxy);
+
     if (Url.match(/\/comic\/[^\/]+$/)) {
         // 特定漫畫選擇話次頁
-
-        const Title = document.querySelector("h6").innerText;
         let selectMode = false;
 
         let id = setInterval(() => {
@@ -139,11 +203,15 @@ async function downloanThisEpisode(imgs) {
                 // 個別清單
 
                 if (!buttonAdded) {
+                    // 插入控制按鈕
                     let field = document.querySelector(".table-default-right");
-                    field.insertAdjacentHTML("afterbegin", `<span style="user-select: none; cursor: pointer; padding-top: 6px; padding-right: 2rem;"><input type="checkbox" id="cb_changeMode"><label for="cb_changeMode">&nbsp;單選模式</label><span style="width: 2rem; display: inline-block;"></span><input type="checkbox" id="cb_selectAll"><label for="cb_selectAll">&nbsp;全選</label><span style="width: 2rem; display: inline-block;"></span><button id="btn_download">下載選取</button><span style="width: 2rem; display: inline-block;"></span><button id="btn_retry">重試失敗的下載</button></span>`);
+
+                    field.insertAdjacentHTML("afterbegin", `<span style="user-select: none; padding-top: 6px; padding-right: 1rem;"><input type="checkbox" id="cb_changeMode"><label for="cb_changeMode">&nbsp;單選模式</label><span style="width: 0.5rem; display: inline-block;"></span><input type="checkbox" id="cb_selectAll"><label for="cb_selectAll">&nbsp;全選</label><span style="width: 0.5rem; display: inline-block;"></span><button id="btn_download" disabled>下載選取</button><span style="width: 0.5rem; display: inline-block;"></span><button id="btn_retry" disabled>重試失敗的下載</button><span style="width: 0.5rem; display: inline-block;"></span><span id="s_progress" style="color: darkgreen;">進度訊息（就緒）</span></span>`);
+
                     field.querySelector("#btn_download").onclick = () => {
                         let ok = confirm("請確認 pop-up 的權限已開啓，否則無法正常運作。\n（這個訊息每次都會顯示，無論是否已開啓）");
                         if (ok) {
+                            field.querySelector("#btn_retry").disabled = false;
                             downloadSelected();
                         }
                     };
@@ -153,8 +221,13 @@ async function downloanThisEpisode(imgs) {
                             downloadSelected(true);
                         }
                     };
-                    field.querySelector("#cb_changeMode").onchange = () => selectMode = !selectMode;
+                    field.querySelector("#cb_changeMode").onchange = () => {
+                        field.querySelector("#btn_download").disabled = false;
+                        selectMode = !selectMode;
+                    }
                     field.querySelector("#cb_selectAll").onchange = e => {
+                        field.querySelector("#btn_download").disabled = false;
+
                         let checked = e.target.checked;
                         let episodes = document.querySelectorAll("div[id].active ul.table-all a li");
 
