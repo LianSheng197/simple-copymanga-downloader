@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simple Copymanga Downloader
 // @namespace    -
-// @version      0.2.1
+// @version      0.2.2
 // @description  沒什麼技術成分，非常暴力的下載器
 // @author       LianSheng
 // @include      https://www.copymanga.com/*
@@ -157,7 +157,7 @@ async function downloanThisEpisode(imgs) {
             // 少數情況會有明明完成了數字卻對不起來的狀況，研判可能是短時間內呼叫 API 有重疊到導致誤差
             // 當然也有可能是缺圖，不過由於這個下載器的架構是主頁與個別頁面分開運作，因此很難除錯
             // 只好特別另開一個條件容忍了（誤差 <= 3，且上次更新時間是 20 秒前）
-            if (GM_getValue("progress") == GM_getValue("total") || (GM_getValue("total") - GM_setValue("progress") <= 3 && (Time.ago(GM_getValue("lastUpdate")) > 2e4))) {
+            if (GM_getValue("progress") == GM_getValue("total") || (GM_getValue("total") - GM_getValue("progress") <= 3 && (Time.ago(GM_getValue("lastUpdate")) > 2e4))) {
                 clearInterval(id);
                 res();
             };
