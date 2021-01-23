@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Simple Copymanga Downloader
 // @namespace    -
-// @version      0.2.2
+// @version      0.2.3
 // @description  沒什麼技術成分，非常暴力的下載器
 // @author       LianSheng
 // @include      https://www.copymanga.com/*
+// @include      https://copymanga.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.5.0/jszip.min.js
 // @grant        GM_addStyle
 // @grant        GM_getValue
@@ -15,6 +16,7 @@
 
 const CORSProxy = "https://simple-cors-anywhere.herokuapp.com/";
 const Url = location.href;
+const Host = location.host;
 
 // 工具：時間
 const Time = {
@@ -83,7 +85,7 @@ function downloadSelected(retry = false) {
         GM_setValue("downloading", data[0]);
 
         // 改用彈出式子視窗避免主頁被凍結
-        let wid = window.open(`https://www.copymanga.com${data[1]}`, data[0], "width=800,height=600");
+        let wid = window.open(`https://${Host}${data[1]}`, data[0], "width=800,height=600");
 
         await new Promise((res, rej) => {
             let count = 0;
