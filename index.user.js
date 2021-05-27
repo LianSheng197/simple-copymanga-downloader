@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simple Copymanga Downloader
 // @namespace    -
-// @version      0.2.3
+// @version      0.3.0
 // @description  沒什麼技術成分，非常暴力的下載器
 // @author       LianSheng
 // @include      https://www.copymanga.com/*
@@ -10,11 +10,21 @@
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @run-at       document-start
 // ==/UserScript==
 
+unsafeWindow.oldeval = unsafeWindow.eval;
+unsafeWindow.blocked = (...args) => console.log("Blocked", args);
+unsafeWindow.eval = (...args) => {
+    args[0] = args[0].replace("removeChild", "blocked");
+    args[0] = args[0].replace("remove", "blocked");
 
+    console.log(args);
+    unsafeWindow.oldeval(...args);
+}
 
-const CORSProxy = "https://simple-cors-anywhere.herokuapp.com/";
+const waitSeconds = 300;
+const CORSProxy = "https://cors1.ls197.workers.dev/?";
 const Url = location.href;
 const Host = location.host;
 
@@ -73,12 +83,14 @@ function downloadSelected(retry = false) {
     let progress = document.querySelector("#s_progress");
 
     if (retry) {
-        allLi = document.querySelectorAll("div[id].active ul.table-all a li.selected.failed");
+        allLi = document.querySelectorAll("a li.selected.failed, a li.failed");
         allData = [...allLi].map(li => [li.parentElement.getAttribute("title"), li.parentElement.getAttribute("href"), li]);
     } else {
-        allLi = document.querySelectorAll("div[id].active ul.table-all a li.selected");
+        allLi = document.querySelectorAll("a li.selected");
         allData = [...allLi].map(li => [li.parentElement.getAttribute("title"), li.parentElement.getAttribute("href"), li]);
     }
+
+    console.log(allData);
 
     asyncForEach(allData, async data => {
         storageInit();
@@ -101,8 +113,8 @@ function downloadSelected(retry = false) {
                     progress.innerText = `${GM_getValue("downloading")}（正在壓縮）`;
                 }
 
-                // 判斷超時（40秒）
-                if (Time.ago(GM_getValue("lastUpdate")) > 4e4) {
+                // 判斷超時（ waitSeconds 秒）
+                if (Time.ago(GM_getValue("lastUpdate")) > waitSeconds * 1000) {
                     clearInterval(id);
                     rej();
                 }
@@ -155,11 +167,11 @@ async function downloanThisEpisode(imgs) {
 
     // 等待上方下載完畢
     await new Promise(res => {
-        let id = setInterval(()=>{
+        let id = setInterval(() => {
             // 少數情況會有明明完成了數字卻對不起來的狀況，研判可能是短時間內呼叫 API 有重疊到導致誤差
             // 當然也有可能是缺圖，不過由於這個下載器的架構是主頁與個別頁面分開運作，因此很難除錯
-            // 只好特別另開一個條件容忍了（誤差 <= 3，且上次更新時間是 20 秒前）
-            if (GM_getValue("progress") == GM_getValue("total") || (GM_getValue("total") - GM_getValue("progress") <= 3 && (Time.ago(GM_getValue("lastUpdate")) > 2e4))) {
+            // 只好特別另開一個條件容忍了（誤差 <= 3，且上次更新時間是 60 秒前）
+            if (GM_getValue("progress") == GM_getValue("total") || (GM_getValue("total") - GM_getValue("progress") <= 3 && (Time.ago(GM_getValue("lastUpdate")) > 60 * 1000))) {
                 clearInterval(id);
                 res();
             };
@@ -196,7 +208,7 @@ async function downloanThisEpisode(imgs) {
         let selectMode = false;
 
         let id = setInterval(() => {
-            let episodeList = document.querySelectorAll("ul.table-all");
+            let episodeList = document.querySelectorAll("[role='tabpanel'] ul");
             let buttonAdded = false;
 
             if (episodeList.length == 0)
@@ -260,7 +272,7 @@ async function downloanThisEpisode(imgs) {
         }, 100);
     } else if (Url.match(/\/comic\/[^\/]+\/chapter\/.+$/)) {
         let id = setInterval(() => {
-            let allImg = document.querySelectorAll(".comicContent-image-all img");
+            let allImg = document.querySelectorAll(".comicContent-image-list img");
 
             if (allImg.length > 0) {
                 clearInterval(id);
